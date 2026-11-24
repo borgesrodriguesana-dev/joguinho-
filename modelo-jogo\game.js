@@ -1,217 +1,399 @@
-/*
- * MODELO DE JOGO — Jogos VR
- * -------------------------
- * Este arquivo é seu. Troque a lógica, o placar e as regras.
- * O que NÃO deve mudar é o contrato com o portal, explicado abaixo.
- */
-(function () {
-  "use strict";
-
-  // 1. Configuração: mude à vontade.
-  var CONFIG = {
-    rounds: 10,
-    title: "Clique no Alvo",
-  };
-
-  var state = {
-    score: 0,
-    round: 0,
-    startedAt: null,
-    finished: false,
-    timerId: null,
-  };
-
-  var els = {
-    board: document.getElementById("board"),
-    score: document.getElementById("score"),
-    total: document.getElementById("total"),
-    timer: document.getElementById("timer"),
-    hint: document.getElementById("start-hint"),
-    restart: document.getElementById("restart"),
-    result: document.getElementById("result"),
-    resultText: document.getElementById("result-text"),
-    playAgain: document.getElementById("play-again"),
-  };
-
-  // 2. Avisa o portal que o jogo carregou.
-  window.parent.postMessage({ type: "vrgame:ready" }, "*");
-
-  function formatTime(ms) {
-    return (ms / 1000).toFixed(1).replace(".", ",") + "s";
+// Lista das 8 rodadas com dificuldade crescente
+// Cada rodada tem a palavra em português e 3 cápsulas espalhadas no labirinto
+const rodadas = [
+  {
+    portugues: "MAÇÃ",
+    opcoes: [
+      { texto: "APPLE", certa: true, explicacao: "Isso! 'Apple' significa maçã." },
+      { texto: "BANANA", certa: false, explicacao: "'Banana' significa banana, não maçã." },
+      { texto: "GRAPE", certa: false, explicacao: "'Grape' significa uva." }
+    ]
+  },
+  {
+    portugues: "CACHORRO",
+    opcoes: [
+      { texto: "CAT", certa: false, explicacao: "'Cat' significa gato." },
+      { texto: "DOG", certa: true, explicacao: "Muito bem! 'Dog' significa cachorro." },
+      { texto: "BIRD", certa: false, explicacao: "'Bird' significa pássaro." }
+    ]
+  },
+  {
+    portugues: "LIVRO",
+    opcoes: [
+      { texto: "PEN", certa: false, explicacao: "'Pen' significa caneta." },
+      { texto: "DESK", certa: false, explicacao: "'Desk' significa carteira ou mesa." },
+      { texto: "BOOK", certa: true, explicacao: "Acertou! 'Book' significa livro." }
+    ]
+  },
+  {
+    portugues: "ÁGUA",
+    opcoes: [
+      { texto: "WATER", certa: true, explicacao: "Perfeito! 'Water' significa água." },
+      { texto: "MILK", certa: false, explicacao: "'Milk' significa leite." },
+      { texto: "JUICE", certa: false, explicacao: "'Juice' significa suco." }
+    ]
+  },
+  {
+    portugues: "VERMELHO",
+    opcoes: [
+      { texto: "BLUE", certa: false, explicacao: "'Blue' significa azul." },
+      { texto: "RED", certa: true, explicacao: "Exato! 'Red' significa vermelho." },
+      { texto: "GREEN", certa: false, explicacao: "'Green' significa verde." }
+    ]
+  },
+  {
+    portugues: "JANELA",
+    opcoes: [
+      { texto: "DOOR", certa: false, explicacao: "'Door' significa porta." },
+      { texto: "WALL", certa: false, explicacao: "'Wall' significa parede." },
+      { texto: "WINDOW", certa: true, explicacao: "Isso mesmo! 'Window' significa janela." }
+    ]
+  },
+  {
+    portugues: "RELÓGIO",
+    opcoes: [
+      { texto: "CLOCK", certa: true, explicacao: "Mandou bem! 'Clock' significa relógio." },
+      { texto: "SHOE", certa: false, explicacao: "'Shoe' significa sapato." },
+      { texto: "CHAIR", certa: false, explicacao: "'Chair' significa cadeira." }
+    ]
+  },
+  {
+    portugues: "COZINHA",
+    opcoes: [
+      { texto: "BEDROOM", certa: false, explicacao: "'Bedroom' significa quarto." },
+      { texto: "KITCHEN", certa: true, explicacao: "Excelente! 'Kitchen' significa cozinha." },
+      { texto: "GARDEN", certa: false, explicacao: "'Garden' significa jardim." }
+    ]
   }
+];
 
-  function startTimer() {
-    if (state.startedAt) return;
-    state.startedAt = Date.now();
-    state.timerId = window.setInterval(function () {
-      els.timer.textContent = formatTime(Date.now() - state.startedAt);
-    }, 100);
-  }
+// Mapas de labirinto 7x7 (0 = corredor, 1 = parede)
+// Alternam entre as rodadas para deixar a exploração mais divertida
+const mapasLabirinto = [
+  [
+    [1, 1, 1, 1, 1, 1, 1],
+    [1, 0, 0, 0, 0, 0, 1],
+    [1, 0, 1, 1, 1, 0, 1],
+    [1, 0, 0, 0, 0, 0, 1],
+    [1, 0, 1, 0, 1, 0, 1],
+    [1, 0, 0, 0, 0, 0, 1],
+    [1, 1, 1, 1, 1, 1, 1]
+  ],
+  [
+    [1, 1, 1, 1, 1, 1, 1],
+    [1, 0, 0, 1, 0, 0, 1],
+    [1, 0, 0, 0, 0, 0, 1],
+    [1, 1, 0, 1, 0, 1, 1],
+    [1, 0, 0, 0, 0, 0, 1],
+    [1, 0, 1, 0, 1, 0, 1],
+    [1, 1, 1, 1, 1, 1, 1]
+  ]
+];
 
-  function stopTimer() {
-    if (state.timerId) {
-      window.clearInterval(state.timerId);
-      state.timerId = null;
-    }
-  }
+// Posições fixas onde as 3 cápsulas aparecem (longe do início do jogador em [1, 1])
+const posicoesCapsulas = [
+  { linha: 1, coluna: 5 },
+  { linha: 5, coluna: 1 },
+  { linha: 5, coluna: 5 }
+];
 
-  function spawnTarget() {
-    var old = els.board.querySelector(".target");
-    if (old) old.remove();
+// Variáveis de estado da partida
+let rodadaAtual = 0;
+let pontos = 0;
+const pontosPorAcerto = 100;
+const penalidadeErro = 25;
+const pontuacaoMaxima = rodadas.length * pontosPorAcerto;
+const pontuacaoMinimaVitoria = pontuacaoMaxima / 2;
 
-    var size = 64;
-    var maxX = Math.max(0, els.board.clientWidth - size - 8);
-    var maxY = Math.max(0, els.board.clientHeight - size - 8);
+let mapaAtual = [];
+let posicaoJogador = { linha: 1, coluna: 1 };
+let capsulasAtivas = [];
+let tempoInicio = 0;
+let bloqueadoParaTransicao = false;
 
-    var button = document.createElement("button");
-    button.type = "button";
-    button.className = "target";
-    button.setAttribute("aria-label", "Alvo " + (state.round + 1));
-    button.style.left = 4 + Math.random() * maxX + "px";
-    button.style.top = 4 + Math.random() * maxY + "px";
-    button.addEventListener("click", hitTarget);
-    els.board.appendChild(button);
-    button.focus();
-  }
+// Elementos da tela
+const telaInicio = document.getElementById("tela-inicio");
+const telaJogo = document.getElementById("tela-jogo");
+const telaFim = document.getElementById("tela-fim");
 
-  function hitTarget() {
-    if (state.finished) return;
-    startTimer();
+const textoRodada = document.getElementById("texto-rodada");
+const textoPontos = document.getElementById("texto-pontos");
+const palavraAlvo = document.getElementById("palavra-alvo");
+const gradeLabirinto = document.getElementById("grade-labirinto");
+const caixaFeedback = document.getElementById("caixa-feedback");
+const textoFeedback = document.getElementById("texto-feedback");
 
-    state.score += 1;
-    state.round += 1;
-    els.score.textContent = String(state.score);
+const botaoIniciar = document.getElementById("botao-iniciar");
+const botaoReiniciar = document.getElementById("botao-reiniciar");
+const botaoTema = document.getElementById("botao-tema");
+const botoesSeta = document.querySelectorAll(".botao-seta");
 
-    if (state.round >= CONFIG.rounds) {
-      finish();
-      return;
-    }
+// Alterna entre as telas (início, jogo, fim)
+function mostrarTela(telaEscolhida) {
+  telaInicio.classList.remove("ativa");
+  telaJogo.classList.remove("ativa");
+  telaFim.classList.remove("ativa");
+  telaEscolhida.classList.add("ativa");
+  avisarAlturaPortal();
+}
 
-    spawnTarget();
-  }
+// Inicia uma nova partida do zero
+function iniciarJogo() {
+  rodadaAtual = 0;
+  pontos = 0;
+  tempoInicio = Date.now();
+  bloqueadoParaTransicao = false;
+  caixaFeedback.classList.add("oculto");
+  atualizarPlacar();
+  mostrarTela(telaJogo);
+  carregarRodada();
+}
 
-  function finish() {
-    state.finished = true;
-    stopTimer();
-    var timeMs = state.startedAt ? Date.now() - state.startedAt : 0;
+// Prepara o labirinto e as cápsulas da rodada atual
+function carregarRodada() {
+  bloqueadoParaTransicao = false;
+  const dadosRodada = rodadas[rodadaAtual];
+  palavraAlvo.textContent = dadosRodada.portugues;
+  atualizarPlacar();
 
-    els.result.hidden = false;
-    els.resultText.textContent =
-      "Você acertou " +
-      state.score +
-      " de " +
-      CONFIG.rounds +
-      " alvos em " +
-      formatTime(timeMs) +
-      ".";
+  // Escolhe o mapa da rodada
+  mapaAtual = mapasLabirinto[rodadaAtual % mapasLabirinto.length];
 
-    // 3. Avisa o portal que a partida terminou e envia o resultado.
-    window.parent.postMessage(
-      {
-        type: "vrgame:finish",
-        score: state.score,
-        maxScore: CONFIG.rounds,
-        timeMs: timeMs,
-        detail: { mode: "template" },
-      },
-      "*"
-    );
-  }
+  // Coloca o astronauta no canto superior esquerdo
+  posicaoJogador = { linha: 1, coluna: 1 };
 
-  function reset() {
-    stopTimer();
-    state.score = 0;
-    state.round = 0;
-    state.startedAt = null;
-    state.finished = false;
-    els.score.textContent = "0";
-    els.timer.textContent = "0,0s";
-    els.result.hidden = true;
-    els.hint.hidden = false;
-    els.total.textContent = String(CONFIG.rounds);
+  // Embaralha as posições das 3 opções de palavras no labirinto
+  const posicoesEmbaralhadas = [...posicoesCapsulas].sort(() => Math.random() - 0.5);
+  capsulasAtivas = dadosRodada.opcoes.map((opcao, indice) => ({
+    linha: posicoesEmbaralhadas[indice].linha,
+    coluna: posicoesEmbaralhadas[indice].coluna,
+    texto: opcao.texto,
+    certa: opcao.certa,
+    explicacao: opcao.explicacao,
+    coletada: false
+  }));
 
-    var old = els.board.querySelector(".target");
-    if (old) old.remove();
-  }
+  desenharLabirinto();
+  avisarAlturaPortal();
+}
 
-  // 4. O portal avisa se o tema é claro ou escuro.
-  function applyTheme(theme) {
-    if (theme === "dark" || theme === "light") {
-      document.documentElement.dataset.theme = theme;
-    }
-  }
+// Desenha toda a grade 7x7 na tela
+function desenharLabirinto() {
+  gradeLabirinto.innerHTML = "";
 
-  // Na nova aba não existe portal: ?theme= > localStorage > preferência do sistema.
-  function preferredTheme() {
-    try {
-      var fromQuery = new URLSearchParams(window.location.search).get("theme");
-      if (fromQuery === "dark" || fromQuery === "light") return fromQuery;
-    } catch (error) {
-      // URLSearchParams indisponível: segue para a próxima opção
-    }
+  for (let l = 0; l < 7; l++) {
+    for (let c = 0; c < 7; c++) {
+      const celula = document.createElement("div");
+      celula.classList.add("celula");
 
-    try {
-      var saved = window.localStorage.getItem("theme");
-      if (saved === "dark" || saved === "light") return saved;
-    } catch (error) {
-      // armazenamento bloqueado: usa a preferência do sistema
-    }
+      if (mapaAtual[l][c] === 1) {
+        celula.classList.add("parede");
+      } else {
+        celula.classList.add("corredor");
+      }
 
-    return window.matchMedia("(prefers-color-scheme: dark)").matches
-      ? "dark"
-      : "light";
-  }
-
-  var lastHeight = 0;
-
-  function reportHeight() {
-    var height = Math.ceil(document.body.getBoundingClientRect().height);
-    if (Math.abs(height - lastHeight) < 4) return;
-    lastHeight = height;
-    window.parent.postMessage({ type: "vrgame:resize", height: height }, "*");
-  }
-
-  window.addEventListener("message", function (event) {
-    if (!event.data) return;
-
-    if (event.data.type === "vrgame:theme") {
-      applyTheme(event.data.theme);
-    }
-
-    if (event.data.type === "vrgame:fullscreen") {
-      document.documentElement.classList.toggle(
-        "is-fullscreen",
-        Boolean(event.data.fullscreen)
+      // Verifica se há uma cápsula não coletada nesta célula
+      const capsulaAqui = capsulasAtivas.find(
+        (cap) => !cap.coletada && cap.linha === l && cap.coluna === c
       );
+
+      // Verifica se o astronauta está nesta célula
+      if (posicaoJogador.linha === l && posicaoJogador.coluna === c) {
+        celula.classList.add("jogador");
+        celula.textContent = "🧑‍🚀";
+        celula.setAttribute("aria-label", "Astronauta");
+      } else if (capsulaAqui) {
+        celula.classList.add("capsula");
+        celula.textContent = capsulaAqui.texto;
+      }
+
+      gradeLabirinto.appendChild(celula);
     }
-  });
+  }
+}
 
-  els.board.addEventListener("pointerdown", function () {
-    if (state.round === 0 && !state.finished) {
-      els.hint.hidden = true;
-      spawnTarget();
-    }
-  });
-
-  els.restart.addEventListener("click", reset);
-  els.playAgain.addEventListener("click", reset);
-
-  applyTheme(preferredTheme());
-
-  if (window.self === window.top) {
-    document.documentElement.classList.add("is-standalone");
+// Move o astronauta se o caminho estiver livre
+function moverJogador(direcao) {
+  if (!telaJogo.classList.contains("ativa") || bloqueadoParaTransicao) {
+    return;
   }
 
-  window.addEventListener("storage", function (event) {
-    if (event.key === "theme") applyTheme(event.newValue);
-  });
+  let novaLinha = posicaoJogador.linha;
+  let novaColuna = posicaoJogador.coluna;
 
-  window.addEventListener("resize", reportHeight);
-  if ("ResizeObserver" in window) {
-    new ResizeObserver(reportHeight).observe(document.body);
+  if (direcao === "cima") novaLinha--;
+  if (direcao === "baixo") novaLinha++;
+  if (direcao === "esquerda") novaColuna--;
+  if (direcao === "direita") novaColuna++;
+
+  // Só anda se não bater na parede
+  if (mapaAtual[novaLinha] && mapaAtual[novaLinha][novaColuna] === 0) {
+    posicaoJogador.linha = novaLinha;
+    posicaoJogador.coluna = novaColuna;
+    verificarColisaoCapsula();
+    desenharLabirinto();
   }
-  window.requestAnimationFrame(reportHeight);
+}
 
-  els.total.textContent = String(CONFIG.rounds);
-  document.getElementById("title").textContent = CONFIG.title;
-})();
+// Verifica se o astronauta encostou em alguma cápsula de palavra
+function verificarColisaoCapsula() {
+  const capsulaTocada = capsulasAtivas.find(
+    (cap) => !cap.coletada && cap.linha === posicaoJogador.linha && cap.coluna === posicaoJogador.coluna
+  );
+
+  if (!capsulaTocada) return;
+
+  capsulaTocada.coletada = true;
+
+  if (capsulaTocada.certa) {
+    pontos += pontosPorAcerto;
+    exibirFeedback(capsulaTocada.explicacao, true);
+    atualizarPlacar();
+    bloqueadoParaTransicao = true;
+
+    // Avança para a próxima rodada após um pequeno intervalo para leitura
+    setTimeout(() => {
+      rodadaAtual++;
+      if (rodadaAtual < rodadas.length) {
+        carregarRodada();
+      } else {
+        finalizarJogo();
+      }
+    }, 1200);
+  } else {
+    // Penalidade por pegar palavra errada, sem deixar pontos negativos
+    pontos = Math.max(0, pontos - penalidadeErro);
+    exibirFeedback("Ops! " + capsulaTocada.explicacao, false);
+    atualizarPlacar();
+  }
+}
+
+// Mostra a explicação curta de acerto ou erro
+function exibirFeedback(mensagem, acertou) {
+  textoFeedback.textContent = mensagem;
+  caixaFeedback.classList.remove("oculto", "acerto", "erro");
+  caixaFeedback.classList.add(acertou ? "acerto" : "erro");
+  avisarAlturaPortal();
+}
+
+// Atualiza os textos de rodada e pontuação no topo
+function atualizarPlacar() {
+  const numeroExibido = Math.min(rodadaAtual + 1, rodadas.length);
+  textoRodada.textContent = `${numeroExibido}/${rodadas.length}`;
+  textoPontos.textContent = pontos;
+}
+
+// Encerra o jogo, mostra o resultado e envia os dados para o portal
+function finalizarJogo() {
+  const tempoTotalMs = Date.now() - tempoInicio;
+  const tempoSegundos = Math.round(tempoTotalMs / 1000);
+
+  const tituloResultado = document.getElementById("titulo-resultado");
+  const mensagemResultado = document.getElementById("mensagem-resultado");
+  const pontosFinais = document.getElementById("pontos-finais");
+  const pontosMaximos = document.getElementById("pontos-maximos");
+  const tempoFinal = document.getElementById("tempo-final");
+
+  pontosFinais.textContent = pontos;
+  pontosMaximos.textContent = pontuacaoMaxima;
+  tempoFinal.textContent = `${tempoSegundos}s`;
+
+  if (pontos >= pontuacaoMinimaVitoria) {
+    tituloResultado.textContent = "🎉 Missão Cumprida!";
+    mensagemResultado.textContent = "Parabéns! Você atingiu a pontuação necessária e dominou o vocabulário espacial.";
+  } else {
+    tituloResultado.textContent = "🛸 Quase lá!";
+    mensagemResultado.textContent = `Você precisava de pelo menos ${pontuacaoMinimaVitoria} pontos para vencer. Tente novamente!`;
+  }
+
+  mostrarTela(telaFim);
+
+  // Contrato com o portal: avisa que o jogo terminou
+  window.parent.postMessage(
+    {
+      type: "vrgame:finish",
+      score: pontos,
+      maxScore: pontuacaoMaxima,
+      timeMs: tempoTotalMs,
+      detail: { jogo: "astrowords" }
+    },
+    "*"
+  );
+}
+
+// Aplica tema claro ou escuro
+function aplicarTema(tema) {
+  if (tema === "light" || tema === "claro") {
+    document.body.classList.add("tema-claro");
+  } else {
+    document.body.classList.remove("tema-claro");
+  }
+  avisarAlturaPortal();
+}
+
+// Envia a altura atual do documento para o portal ajustar o quadro
+function avisarAlturaPortal() {
+  const altura = document.documentElement.scrollHeight;
+  window.parent.postMessage({ type: "vrgame:resize", height: altura }, "*");
+}
+
+// Eventos de teclado (Setas e WASD)
+window.addEventListener("keydown", (evento) => {
+  const mapaTeclas = {
+    ArrowUp: "cima",
+    w: "cima",
+    W: "cima",
+    ArrowDown: "baixo",
+    s: "baixo",
+    S: "baixo",
+    ArrowLeft: "esquerda",
+    a: "esquerda",
+    A: "esquerda",
+    ArrowRight: "direita",
+    d: "direita",
+    D: "direita"
+  };
+
+  if (mapaTeclas[evento.key]) {
+    evento.preventDefault();
+    moverJogador(mapaTeclas[evento.key]);
+  }
+});
+
+// Eventos dos botões na tela
+botoesSeta.forEach((botao) => {
+  botao.addEventListener("click", () => {
+    moverJogador(botao.dataset.direcao);
+  });
+});
+
+botaoIniciar.addEventListener("click", iniciarJogo);
+botaoReiniciar.addEventListener("click", iniciarJogo);
+
+botaoTema.addEventListener("click", () => {
+  document.body.classList.toggle("tema-claro");
+  avisarAlturaPortal();
+});
+
+// Escuta mensagens enviadas pelo portal (tema e tela cheia)
+window.addEventListener("message", (evento) => {
+  const dados = evento.data;
+  if (!dados || typeof dados !== "object") return;
+
+  if (dados.type === "vrgame:theme" && dados.theme) {
+    aplicarTema(dados.theme);
+  }
+
+  if (dados.type === "vrgame:fullscreen") {
+    avisarAlturaPortal();
+  }
+});
+
+// Atualiza a altura quando a janela mudar de tamanho
+window.addEventListener("resize", avisarAlturaPortal);
+
+// Avisa o portal assim que o jogo terminar de carregar
+window.addEventListener("load", () => {
+  window.parent.postMessage({ type: "vrgame:ready" }, "*");
+  avisarAlturaPortal();
+});
